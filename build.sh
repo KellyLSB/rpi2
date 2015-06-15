@@ -123,7 +123,7 @@ function RPi2Firmware() {
 	EOKERNEL
 	echo -e '\n'
 
-	for file in $RPI_FIRMWARE_FILES; do
+	for file in "${RPI_FIRMWARE_FILES[@]}"; do
 		url="https://github.com/Hexxeh/rpi-firmware/blob/master/${file}?raw=true"
 
 		cat <<-EOFIRMWARE
@@ -216,9 +216,11 @@ sudo vmdebootstrap \
 	--hostname raspberrypi \
 	--foreign /usr/bin/qemu-arm-static \
 	--customize `pwd`/customize \
-	--package net-base \
-	--package net-tools
+	--package netbase \
+	--package net-tools \
+	--package ca-certificates \
+	--package curl
 
-sudo mv debootstrap.log debootstrap-${BUILDTS}.log
-sudo mv customize customize-${BUILDTS}
-sudo mv rpi2-${DIST}.img rpi2-${DIST}-${BUILDTS}.img
+sudo mv debootstrap.log debootstrap-${BUILDTS}.log &>/dev/null
+sudo mv customize customize-${BUILDTS} &>/dev/null
+sudo mv rpi2-${DIST}.img rpi2-${DIST}-${BUILDTS}.img &>/dev/null
