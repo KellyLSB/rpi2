@@ -1,7 +1,7 @@
 #!/bin/bash
 #set -x
 ARCH="armhf"
-DIST="sid"
+DIST="jessie"
 
 BUILDTS="$(date '+%m-%d-%Y-%H-%M-%S')"
 
@@ -20,12 +20,12 @@ function CheckTCPPort() {
 if CheckTCPPort 9999; then
 	echo "Enabling Apt-Cacher Proxy on Port 9999"
 	APT_PROXY="127.0.0.1:9999/"
-elif CheckTCPPort 3142; then
-	echo "Enabling Apt-Cacher-NG Proxy on Port 3142"
-	APT_PROXY="127.0.0.1:3142/"
 elif CheckTCPPort 9977; then
 	echo "Enabling Apt-P2P Proxy on Port 9977"
 	APT_PROXY="127.0.0.1:9977/"
+elif CheckTCPPort 3142; then
+	echo "Enabling Apt-Cacher-NG Proxy on Port 3142"
+	APT_PROXY="127.0.0.1:3142/"
 fi
 
 APT_MIRRORS=()
@@ -126,13 +126,11 @@ function AptRepoSources() {
 				srv="$(cut -d' ' -f1 <<<"$mir")"
 				dst="$(cut -d' ' -f2 <<<"$mir")"
 				cmp="$(cut -d' ' -f3- <<<"$mir")"
-				echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
-				# @TODO: Fix the apt caching
-				# if [[ "$1" == "no-proxy" ]]; then
-				# 	echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
-				# else
-				# 	echo "deb${src} [arch=${ARCH}] http://${APT_PROXY}${srv} ${dst} ${cmp}"
-				# fi
+				if [[ "$1" == "no-proxy" ]]; then
+					echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
+				else
+					echo "deb${src} [arch=${ARCH}] http://${APT_PROXY}${srv} ${dst} ${cmp}"
+				fi
 			done
 		done
 		echo 'EOLIST'
@@ -228,9 +226,9 @@ StartServices \
 	systemd-networkd systemd-resolved \
 	>> customize-${BUILDTS}
 
-AptRepo "httpredir.debian.org/debian"	"sid" \
+AptRepo "httpredir.debian.org/debian"	"jessie" \
  	main contrib non-free
-AptRepo "http.us.debian.org/debian" "sid" \
+AptRepo "http.us.debian.org/debian" "jessie" \
 	main contrib non-free
 
 AptRepoSources \
@@ -246,9 +244,9 @@ AptInstall iptables iproute2 iproute2-doc \
 AptKeyFile ${PWD}/config/raspbian-archive-keyring.gpg
 AptKeyFile ${PWD}/config/collabora-archive-keyring.gpg
 
-AptRepo "archive.raspbian.org/raspbian" "sid" \
+AptRepo "archive.raspbian.org/raspbian" "jessie" \
 	main contrib non-free firmware rpi
-AptRepo "repositories.collabora.co.uk/debian"	"sid" \
+AptRepo "repositories.collabora.co.uk/debian"	"jessie" \
 	rpi2
 
 AptRepoSources \
@@ -291,7 +289,7 @@ sudo vmdebootstrap \
 	--no-extlinux \
 	--root-password pi \
 	--hostname rpi2 \
-	--foreign $(which qemu-arm-static) \
+	--foreign "$(which qemu-arm-static)" \
 	--customize "${PWD}/customize-${BUILDTS}" \
 	--package debian-archive-keyring \
 	--package apt-transport-https \
