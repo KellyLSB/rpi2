@@ -1,13 +1,31 @@
 #!/bin/bash
 #set -x
 ARCH="armhf"
-DIST="jessie"
+DIST="sid"
 
 BUILDTS="$(date '+%m-%d-%Y-%H-%M-%S')"
 
-if timeout 1 bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/3142' &>/dev/null; then
-	echo "Enabling Apt-Cacher-NG Proxy"
+function CheckTCPPort() {
+	if [[ $# -eq 2 ]]; then
+		local HOST=$1 PORT=$2
+	elif [[ $# -eq 1 ]]; then
+		local HOST="127.0.0.1" PORT="$1"
+	else
+		return 1
+	fi
+
+	timeout 1 bash -c "cat < /dev/null > /dev/tcp/${HOST}/${PORT}" &>/dev/null
+}
+
+if CheckTCPPort 9999; then
+	echo "Enabling Apt-Cacher Proxy on Port 9999"
+	APT_PROXY="127.0.0.1:9999/"
+elif CheckTCPPort 3142; then
+	echo "Enabling Apt-Cacher-NG Proxy on Port 3142"
 	APT_PROXY="127.0.0.1:3142/"
+elif CheckTCPPort 9977; then
+	echo "Enabling Apt-P2P Proxy on Port 9977"
+	APT_PROXY="127.0.0.1:9977/"
 fi
 
 APT_MIRRORS=()
@@ -109,6 +127,7 @@ function AptRepoSources() {
 				dst="$(cut -d' ' -f2 <<<"$mir")"
 				cmp="$(cut -d' ' -f3- <<<"$mir")"
 				echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
+				# @TODO: Fix the apt caching
 				# if [[ "$1" == "no-proxy" ]]; then
 				# 	echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
 				# else
@@ -203,27 +222,23 @@ Begin \
 
 EnableServices \
 	systemd-networkd systemd-resolved \
-	apt-p2p apt-cacher-ng \
 	>> customize-${BUILDTS}
 
 StartServices \
 	systemd-networkd systemd-resolved \
-	apt-p2p apt-cacher-ng \
 	>> customize-${BUILDTS}
 
-AptRepo "httpredir.debian.org/debian"	"jessie" \
+AptRepo "httpredir.debian.org/debian"	"sid" \
  	main contrib non-free
-AptRepo "http.us.debian.org/debian" "jessie" \
+AptRepo "http.us.debian.org/debian" "sid" \
 	main contrib non-free
 
 AptRepoSources \
 	>> customize-${BUILDTS}
 
-AptInstall minicom netbase net-tools \
-	curl nano ca-cerficicates ifupdown \
-	iptables iproute2 iproute2-doc dnsutils \
+AptInstall iptables iproute2 iproute2-doc \
 	openssh-server openssh-client mosh \
-	git-core apt-transport-https binutils kmod \
+	git-core binutils kmod \
 	>> customize-${BUILDTS}
 
 ### --- RPi2 Specific --- ###
@@ -231,9 +246,9 @@ AptInstall minicom netbase net-tools \
 AptKeyFile ${PWD}/config/raspbian-archive-keyring.gpg
 AptKeyFile ${PWD}/config/collabora-archive-keyring.gpg
 
-AptRepo "archive.raspbian.org/raspbian" "jessie" \
+AptRepo "archive.raspbian.org/raspbian" "sid" \
 	main contrib non-free firmware rpi
-AptRepo "repositories.collabora.co.uk/debian"	"jessie" \
+AptRepo "repositories.collabora.co.uk/debian"	"sid" \
 	rpi2
 
 AptRepoSources \
@@ -263,8 +278,8 @@ chmod +x customize-${BUILDTS}
 
 sudo vmdebootstrap \
 	--variant minbase \
-	--arch armhf \
-	--distribution jessie \
+	--arch "${ARCH}" \
+	--distribution "${DIST}" \
 	--mirror "http://${APT_PROXY}httpredir.debian.org/debian" \
 	--image "rpi2-${DIST}-${BUILDTS}.img" \
 	--size 2048M \
@@ -275,19 +290,20 @@ sudo vmdebootstrap \
 	--no-kernel \
 	--no-extlinux \
 	--root-password pi \
-	--hostname raspberrypi \
-	--foreign /usr/bin/qemu-arm-static \
+	--hostname rpi2 \
+	--foreign $(which qemu-arm-static) \
 	--customize "${PWD}/customize-${BUILDTS}" \
-	--serial-console-command "/sbin/getty -L ttyAMA0 115200 vt100" \
 	--package debian-archive-keyring \
 	--package apt-transport-https \
-	--package apt-cacher-ng \
-	--package apt-p2p \
+	--package debootstrap \
 	--package minicom \
 	--package netbase \
 	--package net-tools \
+	--package ifupdown \
+	--package dnsutils \
 	--package ca-certificates \
 	--package curl \
 	--package nano
 
+#--serial-console-command "/sbin/getty -L ttyAMA0 115200 vt100" \
 sudo mv debootstrap.log debootstrap-${BUILDTS}.log &>/dev/null
