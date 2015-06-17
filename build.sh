@@ -20,6 +20,12 @@ APT_ARGS=(
 	"--no-install-suggests"
 )
 
+APT_CACHE_DIRECT=(
+	"get.docker.io"
+	"get.docker.com"
+	"download.oracle.com"
+)
+
 RPI_FIRMWARE_FILES=(
 	"README.md"
 	"COPYING.linux"
@@ -38,6 +44,20 @@ RPI_FIRMWARE_FILES=(
 	"start_x.elf"
 )
 
+function Begin() {
+	cat <<-EOBEGIN
+	#!/bin/sh
+	cd "\$1"
+	tail -n +7 "\$0" > provision
+	echo 'rm -f /provision' >> provision
+	chmod +x provision
+	exec chroot "\$1" /provision
+	#!/bin/bash
+	EOBEGIN
+	echo -e '\n'
+
+}
+
 function AptRepo() {
 	APT_MIRRORS+=("$(echo "$@" | tr ' ' '%')")
 }
@@ -49,6 +69,21 @@ function AptKey() {
 function AptKeyFile() {
 	APT_KEYF+=($@)
 }
+
+function AptCache() {
+	echo "if dpkg -l | grep apt-cacher-ng &>/dev/null; then"
+	echo "cat <<EOCACHE > /etc/apt/apt.conf.d/01proxy"
+	echo 'Acquire::HTTP::Proxy "http://127.0.0.1:3142";'
+	if [[ "${APT_CACHE_DIRECT[@]}" != "" ]]; then
+		for host in "${APT_CACHE_DIRECT[@]}"; do
+			echo "Acquire::HTTP::Proxy::${host} \"DIRECT\";"
+		done
+	fi
+	echo "EOCACHE"
+	echo "fi"
+	echo -e '\n'
+}
+
 
 function AptRepoSources() {
 	if [[ "${APT_KEYS[@]}" != "" ]]; then
@@ -73,11 +108,12 @@ function AptRepoSources() {
 				srv="$(cut -d' ' -f1 <<<"$mir")"
 				dst="$(cut -d' ' -f2 <<<"$mir")"
 				cmp="$(cut -d' ' -f3- <<<"$mir")"
-				if [[ "$1" == "no-proxy" ]]; then
-					echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
-				else
-					echo "deb${src} [arch=${ARCH}] http://${APT_PROXY}${srv} ${dst} ${cmp}"
-				fi
+				echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
+				# if [[ "$1" == "no-proxy" ]]; then
+				# 	echo "deb${src} [arch=${ARCH}] http://${srv} ${dst} ${cmp}"
+				# else
+				# 	echo "deb${src} [arch=${ARCH}] http://${APT_PROXY}${srv} ${dst} ${cmp}"
+				# fi
 			done
 		done
 		echo 'EOLIST'
@@ -117,9 +153,9 @@ function ChangeRootPassword() {
 
 function RPi2Firmware() {
 	cat <<-EOKERNEL
-	cp \$(ls /boot/vmlinuz* | sort | tail -n1) kernel7.img
-	cp \$(ls /boot/initrd* | sort | tail -n1) initrd.img
-	cp \$(ls /boot/System.map* | sort | tail -n1) Module7.symvers
+	cp "\$(ls /boot/vmlinuz* | sort | tail -n1)" /boot/kernel7.img
+	cp "\$(ls /boot/initrd* | sort | tail -n1)" /boot/initrd.img
+	cp "\$(ls /boot/System.map* | sort | tail -n1)" /boot/Module7.symvers
 	EOKERNEL
 	echo -e '\n'
 
@@ -136,75 +172,101 @@ function RPi2Firmware() {
 
 	cat <<-EOBOOT
 	cat <<-EOCMDLINE > /boot/cmdline.txt
-	$(cat $PWD/config/cmdline.txt)
+	$(cat ${PWD}/config/cmdline.txt)
 	EOCMDLINE
 
 	cat <<-EOCONFIG > /boot/config.txt
-	$(cat $PWD/config/config.txt)
+	$(cat ${PWD}/config/config.txt)
 	EOCONFIG
 	EOBOOT
 	echo -e '\n'
 }
 
-cat <<EOF > customize
-#!/bin/sh
-cd "\$1"
-tail -n +6 "\$0" > provision
-chmod +x provision
-exec chroot "\$1" /provision
-#!/bin/bash
-EOF
-echo -e '\n' >> customize
+function EnableServices() {
+	for srvc in "$@"; do
+		echo "systemctl enable ${srvc}"
+	done
+	echo -e '\n'
+}
 
-AptRepo "httpredir.debian.org/debian"	 "jessie" "main" "contrib" "non-free"
-AptRepo "http.us.debian.org/debian"	 "jessie" "main" "contrib" "non-free"
+function StartServices() {
+	for srvc in "$@"; do
+		echo "systemctl start ${srvc}"
+	done
+	echo -e '\n'
+}
 
-AptRepoSources >> customize
+trap "sudo chown -Rf ${USER}:${USER} $(dirname $0)" EXIT SIGQUIT SIGTERM
 
-AptInstall curl wget ca-certificates netbase net-tools ifupdown iptables \
-	iproute2 iproute2-doc dnsutils openssh-server openssh-client mosh \
-	git-core  apt-transport-https binutils kmod nano \
-	>> customize
+Begin \
+	>> customize-${BUILDTS}
 
-# Install non-free binary blob needed to boot Raspberry Pi.	This
-# install a kernel somewhere too.
-#wget https://raw.github.com/Hexxeh/rpi-update/master/rpi-update \
-#		-O $rootdir/usr/bin/rpi-update
-#chmod a+x $rootdir/usr/bin/rpi-update
-#mkdir -p $rootdir/lib/modules
-#touch $rootdir/boot/start.elf
+EnableServices \
+	systemd-networkd systemd-resolved \
+	apt-p2p apt-cacher-ng \
+	>> customize-${BUILDTS}
 
-AptKeyFile $PWD/config/raspbian-archive-keyring.gpg
-AptKeyFile $PWD/config/collabora-archive-keyring.gpg
+StartServices \
+	systemd-networkd systemd-resolved \
+	apt-p2p apt-cacher-ng \
+	>> customize-${BUILDTS}
 
-AptRepo "archive.raspbian.org/raspbian"		 "jessie" "main" "contrib" "non-free" "firmware" "rpi"
-AptRepo "repositories.collabora.co.uk/debian"	 "jessie" "rpi2"
+AptRepo "httpredir.debian.org/debian"	"jessie" \
+ 	main contrib non-free
+AptRepo "http.us.debian.org/debian" "jessie" \
+	main contrib non-free
 
-AptRepoSources >> customize
+AptRepoSources \
+	>> customize-${BUILDTS}
+
+AptInstall minicom netbase net-tools \
+	curl nano ca-cerficicates ifupdown \
+	iptables iproute2 iproute2-doc dnsutils \
+	openssh-server openssh-client mosh \
+	git-core apt-transport-https binutils kmod \
+	>> customize-${BUILDTS}
+
+### --- RPi2 Specific --- ###
+
+AptKeyFile ${PWD}/config/raspbian-archive-keyring.gpg
+AptKeyFile ${PWD}/config/collabora-archive-keyring.gpg
+
+AptRepo "archive.raspbian.org/raspbian" "jessie" \
+	main contrib non-free firmware rpi
+AptRepo "repositories.collabora.co.uk/debian"	"jessie" \
+	rpi2
+
+AptRepoSources \
+	>> customize-${BUILDTS}
 
 AptInstall linux-image-3.18.0-trunk-rpi2 \
 	linux-headers-3.18.0-trunk-rpi2 \
 	linux-support-3.18.0-trunk \
-	>> customize
+	>> customize-${BUILDTS}
 
-AptCleanup >> customize
+AptCleanup \
+	>> customize-${BUILDTS}
 
-ChangeRootPassword "pi" >> customize
+ChangeRootPassword "pi" \
+	>> customize-${BUILDTS}
 
-AptRepoSources no-proxy >> customize
+AptRepoSources no-proxy \
+	>> customize-${BUILDTS}
 
-RPi2Firmware >> customize
+AptCache \
+	>> customize-${BUILDTS}
 
-chmod +x customize
+RPi2Firmware \
+	>> customize-${BUILDTS}
 
-trap "sudo chown -Rf $USER:$USER $(dirname $0)" EXIT SIGQUIT SIGTERM
+chmod +x customize-${BUILDTS}
 
 sudo vmdebootstrap \
 	--variant minbase \
 	--arch armhf \
 	--distribution jessie \
-	--mirror http://${APT_PROXY}httpredir.debian.org/debian \
-	--image rpi2-${DIST}.img \
+	--mirror "http://${APT_PROXY}httpredir.debian.org/debian" \
+	--image "rpi2-${DIST}-${BUILDTS}.img" \
 	--size 2048M \
 	--bootsize 64M \
 	--boottype vfat \
@@ -215,12 +277,17 @@ sudo vmdebootstrap \
 	--root-password pi \
 	--hostname raspberrypi \
 	--foreign /usr/bin/qemu-arm-static \
-	--customize `pwd`/customize \
+	--customize "${PWD}/customize-${BUILDTS}" \
+	--serial-console-command "/sbin/getty -L ttyAMA0 115200 vt100" \
+	--package debian-archive-keyring \
+	--package apt-transport-https \
+	--package apt-cacher-ng \
+	--package apt-p2p \
+	--package minicom \
 	--package netbase \
 	--package net-tools \
 	--package ca-certificates \
-	--package curl
+	--package curl \
+	--package nano
 
 sudo mv debootstrap.log debootstrap-${BUILDTS}.log &>/dev/null
-sudo mv customize customize-${BUILDTS} &>/dev/null
-sudo mv rpi2-${DIST}.img rpi2-${DIST}-${BUILDTS}.img &>/dev/null
