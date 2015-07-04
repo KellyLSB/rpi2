@@ -9,7 +9,7 @@ source mkdebdisk.img/mkdebdisk.img.lib.bash
 function SoekrisNet6501() {
 	GrubAppendEtcDefaultVar \
 		"GRUB_CMDLINE_LINUX" \
-		"vga=normal console=ttyS0,19200,n8"
+		"vga=normal console=ttyS0,115200,n8"
 }
 
 #                          #
