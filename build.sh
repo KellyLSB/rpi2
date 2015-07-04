@@ -46,7 +46,7 @@ AptRepoSources \
 	>> ${CUSTOMIZE}
 
 AptInstall <<-EOF >> ${CUSTOMIZE}
-	iptables iptables-persistent iproute2 iproute2-doc packagekit 
+	iptables iptables-persistent iproute2 iproute2-doc packagekit
 	policykit-1 collectd systemd-cron systemd-shim systemd-sysv
 	openssh-server openssh-client mosh isc-dhcp-server bind9
 	docker.io git bzr mercurial subversion binutils
@@ -102,6 +102,7 @@ sudo vmdebootstrap \
 	--package apt-transport-https \
 	--package debootstrap \
 	--package minicom \
+	--package locales \
 	--package curl \
 	--package nano
 

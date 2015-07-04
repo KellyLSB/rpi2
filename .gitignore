@@ -1,5 +1,5 @@
 .DS_Store
 
 /customize*
-/rpi2*.img
+/*.img
 /debootstrap*.log
