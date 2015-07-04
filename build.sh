@@ -6,6 +6,12 @@ DIST="sid"
 # Load in library
 source mkdebdisk.img/mkdebdisk.img.lib.bash
 
+function SoekrisNet6501() {
+	GrubAppendEtcDefaultVar \
+		"GRUB_CMDLINE_LINUX" \
+		"vga=normal console=ttyS0,19200,n8"
+}
+
 #                          #
 # Begin Debdisk definition #
 #                          #
@@ -17,20 +23,10 @@ Begin \
 # Systemd Services
 #
 
-SystemdEnableService \
-	systemd-networkd \
+SystemdEnableService systemd-networkd \
 	>> ${CUSTOMIZE}
 
-SystemdEnableService \
-	systemd-resolved \
-	>> ${CUSTOMIZE}
-
-SystemdStartService \
-	systemd-networkd \
-	>> ${CUSTOMIZE}
-
-SystemdStartService \
-	systemd-resolved \
+SystemdEnableService systemd-resolved \
 	>> ${CUSTOMIZE}
 
 #
@@ -50,11 +46,27 @@ AptRepoSources \
 	>> ${CUSTOMIZE}
 
 AptInstall <<-EOF >> ${CUSTOMIZE}
-	iptables iproute2 iproute2-doc
-	openssh-server openssh-client mosh
-	git-core binutils kmod
-	linux-base grub-pc
+	iptables iptables-persistent iproute2 iproute2-doc packagekit 
+	policykit-1 collectd systemd-cron systemd-shim systemd-sysv
+	openssh-server openssh-client mosh isc-dhcp-server bind9
+	docker.io git bzr mercurial subversion binutils
+	kmod linux-base grub-pc intel-microcode
 EOF
+
+SystemdDisableService isc-dhcp-server \
+	>> ${CUSTOMIZE}
+
+SystemdDisableService bind9 \
+	>> ${CUSTOMIZE}
+
+SystemdEnableService collectd \
+	>> ${CUSTOMIZE}
+
+SystemdEnableService ssh \
+	>> ${CUSTOMIZE}
+
+SystemdEnableService docker \
+	>> ${CUSTOMIZE}
 
 AptCleanup \
 	>> ${CUSTOMIZE}
@@ -63,6 +75,9 @@ AptRepoSources no-proxy \
 	>> ${CUSTOMIZE}
 
 SystemdRootPassword "net6501" \
+	>> ${CUSTOMIZE}
+
+SoekrisNet6501 \
 	>> ${CUSTOMIZE}
 
 chmod +x ${CUSTOMIZE}
